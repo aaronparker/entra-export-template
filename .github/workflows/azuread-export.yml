@@ -1,0 +1,134 @@
+name: Export Azure AD
+
+# Controls when the action will run. 
+on:
+  workflow_dispatch:
+
+  # Run the Azure AD export every day at 1am
+  schedule:
+    - cron:  '0 1 * * *'
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    name: 'Azure AD export'
+    outputs:
+      output1: ${{ steps.commit.outputs.changes_detected }}
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: main
+          #token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Install AzureADExporter
+      # https://github.com/microsoft/azureadexporter
+      - name: Install modules
+        id: install
+        shell: pwsh
+        working-directory: "${{ github.workspace }}"
+        run: |
+          Set-PSRepository -Name "PSGallery" -InstallationPolicy "Trusted"
+          foreach ($module in "Microsoft.Graph.Authentication", "AzureADExporter") {
+              $params = @{
+                  Name               = $module
+                  SkipPublisherCheck = $true
+                  Force              = $true
+                  ErrorAction        = "Stop"
+              }
+              Install-Module @params
+          }
+
+      - name: Remove export directory
+        shell: pwsh
+        working-directory: "${{ github.workspace }}"
+        run: |
+          Remove-Item -Path "$env:GITHUB_WORKSPACE/export" -Recurse -Force -ErrorAction "SilentlyContinue"
+          New-Item -Path "$env:GITHUB_WORKSPACE/export" -ItemType "Directory" -ErrorAction "Stop"
+
+      # Backup the latest configuration, using the current directory - $GITHUB_WORKSPACE
+      - name: Export Azure AD configuration
+        id: export-azuread
+        shell: pwsh
+        run: |
+          # Import modules
+          Import-Module -Name "Microsoft.Graph.Authentication", "AzureADExporter" -Force
+
+          # Authenticate to the Microsoft Graph
+          $params = @{
+              Uri         = "https://login.microsoftonline.com/${{ secrets.TENANT_ID }}/oauth2/v2.0/token"
+              Method      = "POST"
+              Body        = @{
+                  Grant_Type    = "client_credentials"
+                  Scope         = "https://graph.microsoft.com/.default"
+                  Client_Id     = "${{ secrets.CLIENT_ID }}"
+                  Client_Secret = "${{ secrets.CLIENT_SECRET }}"
+              }
+              ErrorAction = "Stop"
+          }
+          $connection = Invoke-RestMethod @params
+          Connect-MgGraph -AccessToken $connection.access_token -ErrorAction "Stop"
+
+          # Export the Azure AD configuration
+          Write-Host "Export to: $env:GITHUB_WORKSPACE/export"
+          Export-AzureAD -Path "$env:GITHUB_WORKSPACE/export" -ErrorAction "SilentlyContinue"
+
+      - name: Get tag
+        shell: pwsh
+        id: get-tag
+        run: |
+          echo "tag=$(Get-Date -Format "yyyy.MM.dd").${{ github.run_number }}" | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # Import GPG key so that we can sign the commit
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v5
+        with:
+          gpg_private_key: ${{ secrets.GPGKEY }}
+          passphrase: ${{ secrets.GPGPASSPHRASE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          git_config_global: true
+          git_tag_gpgsign: true
+          git_push_gpgsign: false
+          git_committer_name: ${{ secrets.COMMIT_NAME }}
+          git_committer_email: ${{ secrets.COMMIT_EMAIL }}
+
+      - name: Commit changes
+        id: commit
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Azure AD Export ${{steps.get-tag.outputs.tag}}"
+          commit_user_name: ${{ secrets.COMMIT_NAME }}
+          commit_user_email: ${{ secrets.COMMIT_EMAIL }}
+          tagging_message: "${{steps.get-tag.outputs.tag}}"
+
+      - name: "Run if changes have been detected"
+        if: steps.commit.outputs.changes_detected == 'true'
+        run: echo "Changes committed."
+
+      - name: Zip export
+        if: steps.commit.outputs.changes_detected == 'true'
+        shell: pwsh
+        id: zip-export
+        working-directory: "${{ github.workspace }}"
+        run: |
+          Compress-Archive -Path "${{ github.workspace }}/export" -DestinationPath "${{ github.workspace }}/export-${{steps.get-tag.outputs.tag}}.zip"
+
+      - name: Upload artifacts
+        if: steps.commit.outputs.changes_detected == 'true'
+        id: upload-artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: export-${{steps.get-tag.outputs.tag}}.zip
+          path: |
+            ${{ github.workspace }}/export-${{steps.get-tag.outputs.tag}}.zip
+
+      - name: Job summary
+        if: steps.commit.outputs.changes_detected == 'true'
+        id: summary
+        shell: pwsh
+        run: |
+          echo "# Export complete :rocket:" | Out-File -FilePath $Env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          echo "" | Out-File -FilePath $Env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          echo "Download export-${{steps.get-tag.outputs.tag}}.zip for a point-in-time snapshot of the Azure AD tenant." | Out-File -FilePath $Env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

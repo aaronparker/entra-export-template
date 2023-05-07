@@ -1,0 +1,119 @@
+trigger: none
+
+# Run the Azure AD export every day at 1am
+schedules:
+  - cron: "0 1 * * *"
+    displayName: "1am"
+    branches:
+      include:
+        - main
+
+jobs:
+  - job: export
+    displayName: Export Azure AD
+    pool:
+      vmImage: ubuntu-latest
+    continueOnError: false
+    steps:
+
+      # Check out the repo in the DevOps project/repo - update name for your project
+      - checkout: self
+        persistCredentials: true
+
+      # Set git global settings
+      - task: PowerShell@2
+        displayName: Configure Git
+        inputs:
+          targetType: inline
+          script: |
+            git config --global user.name $(USER_NAME)
+            git config --global user.email $(USER_EMAIL)
+          workingDirectory: "$(Build.SourcesDirectory)"
+          failOnStderr: true
+
+      - task: PowerShell@2
+        displayName: Remove existing prod-backup directory
+        inputs:
+          targetType: inline
+          script: |
+            Remove-Item -Path "$(Build.SourcesDirectory)/export" -Recurse -Force
+            New-Item -Path "$(Build.SourcesDirectory)/export" -ItemType "Directory" -ErrorAction "Stop"
+          workingDirectory: "$(Build.SourcesDirectory)"
+          failOnStderr: false
+
+      - task: PowerShell@2
+        displayName: Install modules
+        inputs:
+          targetType: inline
+          script: |
+            Set-PSRepository -Name "PSGallery" -InstallationPolicy "Trusted"
+            foreach ($module in "Microsoft.Graph.Authentication", "AzureADExporter") {
+                $params = @{
+                    Name               = $module
+                    SkipPublisherCheck = $true
+                    Force              = $true
+                    ErrorAction        = "Stop"
+                }
+                Install-Module @params
+            }
+          workingDirectory: "$(Build.SourcesDirectory)"
+          failOnStderr: false
+
+      - task: PowerShell@2
+        displayName: Export Azure AD configuration
+        inputs:
+          targetType: inline
+          script: |
+            # Import modules
+            Import-Module -Name "Microsoft.Graph.Authentication", "AzureADExporter" -Force
+
+            # Authenticate to the Microsoft Graph
+            $params = @{
+                Uri         = "https://login.microsoftonline.com/$Env:TENANT_ID/oauth2/v2.0/token"
+                Method      = "POST"
+                Body        = @{
+                    Grant_Type    = "client_credentials"
+                    Scope         = "https://graph.microsoft.com/.default"
+                    Client_Id     = "$Env:CLIENT_ID"
+                    Client_Secret = "$Env:CLIENT_SECRET"
+                }
+                ErrorAction = "Stop"
+            }
+            $connection = Invoke-RestMethod @params
+            Connect-MgGraph -AccessToken $connection.access_token -ErrorAction "Stop"
+
+            # Export the Azure AD configuration
+            Write-Host "Export to: $(Build.SourcesDirectory)/export"
+            Export-AzureAD -Path "$(Build.SourcesDirectory)/export" -ErrorAction "SilentlyContinue"
+          workingDirectory: "$(Build.SourcesDirectory)"
+          failOnStderr: false
+        env:
+          TENANT_ID: $(TENANT_ID)
+          CLIENT_ID: $(CLIENT_ID)
+          CLIENT_SECRET: $(CLIENT_SECRET)
+
+      # Commit changes and push to repo
+      - task: PowerShell@2
+        displayName: Commit changes
+        inputs:
+          targetType: inline
+          script: |
+            git add --all
+            git commit -m "Azure AD export $(Build.BuildNumber)"
+            git push origin HEAD:main
+          workingDirectory: "$(Build.SourcesDirectory)"
+          failOnStderr: false
+
+      - task: PowerShell@2
+        displayName: Zip export
+        inputs:
+          targetType: inline
+          script: |
+            Compress-Archive -Path "$(Build.SourcesDirectory)/export" -DestinationPath "$(Build.SourcesDirectory)/export-$(Build.BuildNumber).zip"
+          workingDirectory: "$(Build.SourcesDirectory)"
+          failOnStderr: false
+
+      - task: PublishBuildArtifacts@1
+        inputs:
+          pathToPublish: "$(Build.SourcesDirectory)/export-$(Build.BuildNumber).zip"
+          artifactName: "export-$(Build.BuildNumber).zip"
