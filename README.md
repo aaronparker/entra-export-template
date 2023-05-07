@@ -1,9 +1,9 @@
-# AzureAD Export Template
+# Azure AD Export
 
-A template repo using the [AzureADExporter](https://github.com/microsoft/azureadexporter) module to export Azure AD settings and generate a report.
+A template repo using the [AzureADExporter](https://github.com/microsoft/azureadexporter) PowerShell module to export Azure AD tenant settings.
 
-* [.github/workflows/azuread-export.yml](.github/workflows/azuread-export.yml) - a GitHub workflow to connect to Azure AD, export settings and commit to the repository
-* [.devops/azuread-export.yml](.devops/azuread-export.yml) - an Azure Pipeline to connect to Azure AD, export settings and commit to the repository
+* [.github/workflows/azuread-export.yml](.github/workflows/azuread-export.yml) - a GitHub workflow to connect to Azure AD, export settings and commit to the repository. Use this if you want to run the workflow in GitHub
+* [.devops/azuread-export.yml](.devops/azuread-export.yml) - an Azure Pipeline to connect to Azure AD, export settings and commit to the repository. Use this if you want to run the pipeline in an Azure DevOps project
 * [Export-AzureAD.ps1](Export-AzureAD.ps1) - a PowerShell script to run the export locally. Expects a `auth.json` file that contains the authentication values
 
 ## Workflow / Pipeline Secrets
@@ -32,7 +32,7 @@ When running the `Export-AzureAD.ps1` script, ensure `auth.json` exists locally 
 
 ## Permissions
 
-The following permissions are required to enable an unattended export via a pipeline:
+The following permissions on an Azure AD app registration are required to enable an unattended export via a pipeline:
 
 |API / Permissions name|Type|Description|
 |:----|:----|:----|
@@ -55,3 +55,15 @@ The following permissions are required to enable an unattended export via a pipe
 |User.Read|Delegated|Sign in and read user profile|
 |User.Read.All|Application|Read all users' full profiles|
 |UserAuthenticationMethod.Read.All|Application|Read all users' authentication methods|
+
+## Outputs
+
+Each workflow / pipeline will export Azure AD settings from the target tenant and save the export into the `export` folder, and attach a zip file of the export to the pipeline artifacts.
+
+**GitHub**:
+
+![Pipeline artifacts on GitHub](.img/github.jpeg)
+
+**Azure DevOps**:
+
+![Pipeline artifacts on Azure DevOps](.img/devops.jpeg)
