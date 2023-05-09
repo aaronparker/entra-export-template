@@ -31,16 +31,18 @@ jobs:
           workingDirectory: "$(Build.SourcesDirectory)"
           failOnStderr: true
 
+      # Remove the export directory so that we have a clean export
       - task: PowerShell@2
-        displayName: Remove existing prod-backup directory
+        displayName: Remove export directory
         inputs:
           targetType: inline
           script: |
-            Remove-Item -Path "$(Build.SourcesDirectory)/export" -Recurse -Force
+            Remove-Item -Path "$(Build.SourcesDirectory)/export" -Recurse -Force -ErrorAction "SilentlyContinue"
             New-Item -Path "$(Build.SourcesDirectory)/export" -ItemType "Directory" -ErrorAction "Stop"
           workingDirectory: "$(Build.SourcesDirectory)"
           failOnStderr: false
 
+      # Install AzureADExporter, https://github.com/microsoft/azureadexporter
       - task: PowerShell@2
         displayName: Install modules
         inputs:
@@ -82,9 +84,11 @@ jobs:
             $connection = Invoke-RestMethod @params
             Connect-MgGraph -AccessToken $connection.access_token -ErrorAction "Stop"
 
-            # Export the Azure AD configuration
+            # Export all available types, except users
+            $AvailableTypes = (Get-Command Export-AzureAD | Select-Object -Expand Parameters)['Type'].Attributes.ValidValues
+            $Types = $AvailableTypes | Where-Object { $_ -ne "Users" }
             Write-Host "Export to: $(Build.SourcesDirectory)/export"
-            Export-AzureAD -Path "$(Build.SourcesDirectory)/export" -ErrorAction "SilentlyContinue"
+            Export-AzureAD -Path "$(Build.SourcesDirectory)/export" -Type $Types -ErrorAction "Continue"
           workingDirectory: "$(Build.SourcesDirectory)"
           failOnStderr: false
         env:
@@ -92,7 +96,6 @@ jobs:
           CLIENT_ID: $(CLIENT_ID)
           CLIENT_SECRET: $(CLIENT_SECRET)
 
-      # Commit changes and push to repo
       - task: PowerShell@2
         displayName: Commit changes
         inputs:

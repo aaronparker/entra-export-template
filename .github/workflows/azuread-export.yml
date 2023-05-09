@@ -1,4 +1,4 @@
-name: Export Azure AD
+name: 'Export Azure AD'
 
 # Controls when the action will run. 
 on:
@@ -37,6 +37,7 @@ jobs:
               Install-Module @params
           }
 
+      # Remove the export directory so that we have a clean export
       - name: Remove export directory
         shell: pwsh
         working-directory: "${{ github.workspace }}"
@@ -71,7 +72,7 @@ jobs:
           $AvailableTypes = (Get-Command Export-AzureAD | Select-Object -Expand Parameters)['Type'].Attributes.ValidValues
           $Types = $AvailableTypes | Where-Object { $_ -ne "Users" }
           Write-Host "Export to: $env:GITHUB_WORKSPACE/export"
-          Export-AzureAD -Path "$env:GITHUB_WORKSPACE/export" -Type $Types -ErrorAction "Stop"
+          Export-AzureAD -Path "$env:GITHUB_WORKSPACE/export" -Type $Types -ErrorAction "Continue"
 
       - name: Get tag
         shell: pwsh
@@ -80,6 +81,7 @@ jobs:
           echo "tag=$(Get-Date -Format "yyyy.MM.dd").${{ github.run_number }}" | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       # Import GPG key so that we can sign the commit
+      # Remove this if you're not interested in signing commits
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v5
