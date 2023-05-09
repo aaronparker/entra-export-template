@@ -19,10 +19,8 @@ jobs:
       - uses: actions/checkout@v3
         with:
           ref: main
-          #token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Install AzureADExporter
-      # https://github.com/microsoft/azureadexporter
+      # Install AzureADExporter, https://github.com/microsoft/azureadexporter
       - name: Install modules
         id: install
         shell: pwsh
@@ -69,9 +67,11 @@ jobs:
           $connection = Invoke-RestMethod @params
           Connect-MgGraph -AccessToken $connection.access_token -ErrorAction "Stop"
 
-          # Export the Azure AD configuration
+          # Export all available types, except users
+          $AvailableTypes = (Get-Command Export-AzureAD | Select-Object -Expand Parameters)['Type'].Attributes.ValidValues
+          $Types = $AvailableTypes | Where-Object { $_ -ne "Users" }
           Write-Host "Export to: $env:GITHUB_WORKSPACE/export"
-          Export-AzureAD -Path "$env:GITHUB_WORKSPACE/export" -ErrorAction "SilentlyContinue"
+          Export-AzureAD -Path "$env:GITHUB_WORKSPACE/export" -Type $Types -ErrorAction "Stop"
 
       - name: Get tag
         shell: pwsh
