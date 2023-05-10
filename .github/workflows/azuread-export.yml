@@ -68,9 +68,12 @@ jobs:
           $connection = Invoke-RestMethod @params
           Connect-MgGraph -AccessToken $connection.access_token -ErrorAction "Stop"
 
-          # Export all available types, except users
-          $AvailableTypes = (Get-Command Export-AzureAD | Select-Object -Expand Parameters)['Type'].Attributes.ValidValues
-          $Types = $AvailableTypes | Where-Object { $_ -ne "Users" }
+          # Export all available types, except users; NOTE - this will take a very long time to export
+          # $AvailableTypes = (Get-Command Export-AzureAD | Select-Object -Expand Parameters)['Type'].Attributes.ValidValues
+          # $Types = $AvailableTypes | Where-Object { $_ -ne "Users" }
+          # Write-Host "Export to: $env:GITHUB_WORKSPACE/export"
+          # Export-AzureAD -Path "$env:GITHUB_WORKSPACE/export" -Type $Types -ErrorAction "Continue"
+
           Write-Host "Export to: $env:GITHUB_WORKSPACE/export"
           Export-AzureAD -Path "$env:GITHUB_WORKSPACE/export" -Type $Types -ErrorAction "Continue"
 
