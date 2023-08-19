@@ -1,6 +1,6 @@
 trigger: none
 
-# Run the Azure AD export every day at 1am
+# Run the Entra ID export every day at 1am
 schedules:
   - cron: "0 1 * * *"
     displayName: "1am"
@@ -10,43 +10,41 @@ schedules:
 
 jobs:
   - job: export
-    displayName: Export Azure AD
+    displayName: Export Entra ID
     pool:
       vmImage: ubuntu-latest
     continueOnError: false
     steps:
 
       # Check out the repo in the DevOps project/repo - update name for your project
-      - checkout: self
+      - checkout: git://AzureAD/AzureAD
         persistCredentials: true
 
       # Set git global settings
       - task: PowerShell@2
         displayName: Configure Git
         inputs:
-          targetType: inline
+          targetType: "inline"
           script: |
             git config --global user.name $(USER_NAME)
             git config --global user.email $(USER_EMAIL)
           workingDirectory: "$(Build.SourcesDirectory)"
           failOnStderr: true
 
-      # Remove the export directory so that we have a clean export
       - task: PowerShell@2
-        displayName: Remove export directory
+        displayName: Remove existing prod-backup directory
         inputs:
-          targetType: inline
+          targetType: "inline"
           script: |
-            Remove-Item -Path "$(Build.SourcesDirectory)/export" -Recurse -Force -ErrorAction "SilentlyContinue"
+            Remove-Item -Path "$(Build.SourcesDirectory)/export" -Recurse -Force
             New-Item -Path "$(Build.SourcesDirectory)/export" -ItemType "Directory" -ErrorAction "Stop"
           workingDirectory: "$(Build.SourcesDirectory)"
           failOnStderr: false
 
-      # Install AzureADExporter, https://github.com/microsoft/azureadexporter
       - task: PowerShell@2
         displayName: Install modules
         inputs:
-          targetType: inline
+          targetType: "inline"
           script: |
             Set-PSRepository -Name "PSGallery" -InstallationPolicy "Trusted"
             foreach ($module in "Microsoft.Graph.Authentication", "AzureADExporter") {
@@ -62,9 +60,9 @@ jobs:
           failOnStderr: false
 
       - task: PowerShell@2
-        displayName: Export Azure AD configuration
+        displayName: Export Entra ID configuration
         inputs:
-          targetType: inline
+          targetType: "inline"
           script: |
             # Import modules
             Import-Module -Name "Microsoft.Graph.Authentication", "AzureADExporter" -Force
@@ -82,16 +80,12 @@ jobs:
                 ErrorAction = "Stop"
             }
             $connection = Invoke-RestMethod @params
-            Connect-MgGraph -AccessToken $connection.access_token -ErrorAction "Stop"
+            $Token = $connection.access_token | ConvertTo-SecureString -AsPlainText
+            Connect-MgGraph -AccessToken $Token -ErrorAction "Stop"
 
-            # Export all available types, except users; NOTE - this will take a very long time to export
-            # $AvailableTypes = (Get-Command Export-AzureAD | Select-Object -Expand Parameters)['Type'].Attributes.ValidValues
-            # $Types = $AvailableTypes | Where-Object { $_ -ne "Users" }
-            # Write-Host "Export to: $(Build.SourcesDirectory)/export"
-            # Export-AzureAD -Path "$(Build.SourcesDirectory)/export" -Type $Types -ErrorAction "Continue"
-
+            # Export the Entra ID configuration
             Write-Host "Export to: $(Build.SourcesDirectory)/export"
-            Export-AzureAD -Path "$(Build.SourcesDirectory)/export" -ErrorAction "Continue"
+            Export-AzureAD -Path "$(Build.SourcesDirectory)/export"  -ErrorAction "SilentlyContinue" -Verbose
           workingDirectory: "$(Build.SourcesDirectory)"
           failOnStderr: false
         env:
@@ -99,27 +93,14 @@ jobs:
           CLIENT_ID: $(CLIENT_ID)
           CLIENT_SECRET: $(CLIENT_SECRET)
 
-      - task: PowerShell@2
+      # Commit changes and push to repo
+      - task: Bash@3
         displayName: Commit changes
         inputs:
-          targetType: inline
+          targetType: "inline"
           script: |
             git add --all
-            git commit -m "Azure AD export $(Build.BuildNumber)"
-            git push origin HEAD:main
+            git commit -m "Entra ID export $(Build.BuildNumber)"
+            git push $(Build.Repository.Uri) HEAD:main
           workingDirectory: "$(Build.SourcesDirectory)"
           failOnStderr: false
-
-      - task: PowerShell@2
-        displayName: Zip export
-        inputs:
-          targetType: inline
-          script: |
-            Compress-Archive -Path "$(Build.SourcesDirectory)/export" -DestinationPath "$(Build.SourcesDirectory)/export-$(Build.BuildNumber).zip"
-          workingDirectory: "$(Build.SourcesDirectory)"
-          failOnStderr: false
-
-      - task: PublishBuildArtifacts@1
-        inputs:
-          pathToPublish: "$(Build.SourcesDirectory)/export-$(Build.BuildNumber).zip"
-          artifactName: "export-$(Build.BuildNumber).zip"

@@ -1,5 +1,5 @@
 <#
-    Connect to Azure AD and export
+    Connect to Entra ID and export
 #>
 [CmdletBinding(SupportsShouldProcess = $false)]
 param(
@@ -22,4 +22,4 @@ $params = @{
 }
 $connection = Invoke-RestMethod @params
 Connect-MgGraph -AccessToken $connection.access_token
-Export-AzureAD -Path "$Path/export" -ErrorAction "SilentlyContinue"
+Export-Entra -Path "$Path/export" -ErrorAction "SilentlyContinue"
