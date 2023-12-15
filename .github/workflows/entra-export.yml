@@ -122,7 +122,7 @@ jobs:
       - name: Upload artifacts
         if: steps.commit.outputs.changes_detected == 'true'
         id: upload-artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: export-${{steps.get-tag.outputs.tag}}.zip
           path: |
